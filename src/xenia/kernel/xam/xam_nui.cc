@@ -20,6 +20,7 @@
 #include "xenia/kernel/nui/kinect_camera.h"
 #include "xenia/kernel/nui/nui_data_store.h"
 #include "xenia/kernel/nui/nui_identity.h"
+#include "xenia/kernel/title_id_utils.h"
 #include "xenia/kernel/util/shim_utils.h"
 #include "xenia/kernel/xam/xam_private.h"
 #include "xenia/kernel/xam/xam_state.h"
@@ -30,6 +31,11 @@ DEFINE_bool(kinect_tilt, true,
             "Let Kinect titles tilt the sensor with its motor, as they do to "
             "find the floor and frame their players.",
             "Kernel");
+DEFINE_string(kinect_hardware_status, "0x40",
+              "Device state the dashboard is told the Kinect has, as the "
+              "kXNotificationSystemNUIHardwareStatusChanged notification. A "
+              "comma-separated list sends several in order. Hex or decimal.",
+              "Kernel");
 
 namespace xe {
 namespace kernel {
@@ -59,10 +65,14 @@ static_assert_size(X_NUI_DEVICE_STATUS, 0x10);
 // X_NUI_DEVICE_STATUS::status_bits bits titles test.
 constexpr uint32_t kNuiDeviceStatusPresent = 0x1;
 constexpr uint32_t kNuiDeviceStatusReady = 0x2;
+// Seen when a console has a sensor the dashboard can use: the sensor has the
+// dashboard's cameras calibrated and its Kinect ID enrolled. The dashboard
+// keeps its Kinect tile grayed with only present | ready.
+constexpr uint32_t kNuiDeviceStatusDashboard = 0x4 | 0x40;
 
 // Get
 dword_result_t XamNuiGetDeviceStatus_entry(
-    pointer_t<X_NUI_DEVICE_STATUS> status_ptr) {
+    pointer_t<X_NUI_DEVICE_STATUS> status_ptr, const ppc_context_t& ctx) {
   /* Notes:
      - it does return a value that is not always used
      - returns values are X_ERROR_SUCCESS, 0xC0050006, and others
@@ -78,11 +88,24 @@ dword_result_t XamNuiGetDeviceStatus_entry(
   status_ptr.Zero();
 
   const bool kinect_initialized = kernel_state()->nui()->NuiInitialized();
+  const bool dashboard = kernel_state()->title_id() == kDashboardID;
 
   // Kinect titles (Fable: The Journey) take the sensor as connected only with
-  // both of these set, 0x2 being ready to stream.
-  status_ptr->status_bits =
-      kinect_initialized ? kNuiDeviceStatusPresent | kNuiDeviceStatusReady : 0;
+  // both of these set, 0x2 being ready to stream. The dashboard reads more.
+  const uint32_t status_bits =
+      kinect_initialized ? kNuiDeviceStatusPresent | kNuiDeviceStatusReady |
+                               (dashboard ? kNuiDeviceStatusDashboard : 0)
+                         : 0;
+  status_ptr->status_bits = status_bits;
+
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    XELOGI(
+        "Kinect: first XamNuiGetDeviceStatus, from lr {:08X}, returned {:02X} "
+        "(title {:08X})",
+        uint32_t(ctx->lr), status_bits, uint32_t(kernel_state()->title_id()));
+  }
   return kinect_initialized ? X_ERROR_SUCCESS : 0xC0050006;
 }
 DECLARE_XAM_EXPORT1(XamNuiGetDeviceStatus, kNone, kStub);
@@ -395,7 +418,7 @@ dword_result_t XamIsNuiUIActive_entry() {
 }
 DECLARE_XAM_EXPORT1(XamIsNuiUIActive, kNone, kImplemented);
 
-dword_result_t XamNuiIsDeviceReady_entry() {
+dword_result_t XamNuiIsDeviceReady_entry(const ppc_context_t& ctx) {
   /* device_state Notes:
    - used with XNotifyBroadcast(kXNotificationSystemNUIHardwareStatusChanged,
    device_state)
@@ -405,7 +428,14 @@ dword_result_t XamNuiIsDeviceReady_entry() {
      - 0x0040
   */
 
-  return kernel_state()->nui()->NuiInitialized();
+  const bool ready = kernel_state()->nui()->NuiInitialized();
+  static bool logged = false;
+  if (!logged) {
+    logged = true;
+    XELOGI("Kinect: first XamNuiIsDeviceReady, from lr {:08X}, returned {}",
+           uint32_t(ctx->lr), ready);
+  }
+  return ready;
 }
 DECLARE_XAM_EXPORT1(XamNuiIsDeviceReady, kNone, kImplemented);
 

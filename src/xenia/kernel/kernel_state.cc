@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <ranges>
 
 #include "xenia/kernel/kernel_state.h"
@@ -55,6 +56,7 @@ DEFINE_uint32(kernel_build_version, 17559, "Define current kernel version",
 UPDATE_from_uint32(kernel_build_version, 2026, 10, 15, 4, 1888);
 
 DECLARE_string(cl);
+DECLARE_string(kinect_hardware_status);
 
 namespace xe {
 namespace kernel {
@@ -1267,6 +1269,32 @@ void KernelState::RegisterNotifyListener(XNotifyListener* listener) {
     if (title_id() == kDashboardID) {
       listener->EnqueueNotification(kXNotificationSystemStorageDevicesChanged,
                                     0);
+    }
+  }
+  // The dashboard's Settings hub lights its Kinect tile from the system NUI
+  // hardware notification a console sends when the sensor appears. Its status
+  // APIs (XamNuiGetDeviceStatus and XamNuiIsDeviceReady) are not enough on
+  // their own and nothing else sends this notification. Every listener the
+  // dashboard registers gets it, not only the first, which may be the boot
+  // animation's.
+  if (title_id() == kDashboardID && listener->mask() & kXNotifySystem &&
+      nui_->NuiInitialized()) {
+    const char* state_str = cvars::kinect_hardware_status.c_str();
+    while (*state_str) {
+      char* state_end = nullptr;
+      const uint32_t state = uint32_t(std::strtoul(state_str, &state_end, 0));
+      if (state_end == state_str) {
+        XELOGW("Kinect: kinect_hardware_status has '{}' after the last state",
+               state_str);
+        break;
+      }
+      XELOGI("Kinect: NUI hardware status 0x{:X} to the dashboard", state);
+      listener->EnqueueNotification(
+          kXNotificationSystemNUIHardwareStatusChanged, state);
+      state_str = state_end;
+      while (*state_str == ',' || *state_str == ' ') {
+        ++state_str;
+      }
     }
   }
   if (!has_notified_live_startup_ && listener->mask() & kXNotifyLive) {
