@@ -19,6 +19,8 @@
 
 #if XE_PLATFORM_LINUX
 #include <dlfcn.h>
+#elif XE_PLATFORM_WIN32
+#include <windows.h>
 #endif
 
 #include "third_party/onnxruntime/onnxruntime_c_api.h"
@@ -83,8 +85,36 @@ const OrtApi* LoadRuntime(const std::filesystem::path& library_path,
         "webcam can't stand in for a Kinect");
     return nullptr;
   }
-  auto get_api_base = reinterpret_cast<const OrtApiBase*(ORT_API_CALL*)()>(
-      dlsym(library, "OrtGetApiBase"));
+  void* symbol = dlsym(library, "OrtGetApiBase");
+#elif XE_PLATFORM_WIN32
+  std::vector<std::filesystem::path> candidates;
+  if (!library_path.empty()) {
+    candidates.push_back(library_path);
+  }
+  candidates.push_back(model_dir / "onnxruntime.dll");
+  candidates.push_back(L"onnxruntime.dll");
+  HMODULE library = nullptr;
+  for (const std::filesystem::path& candidate : candidates) {
+    library = LoadLibraryW(candidate.c_str());
+    if (library) {
+      XELOGI("Kinect: loaded ONNX Runtime from {}",
+             xe::strip_pii(xe::path_to_utf8(candidate)));
+      break;
+    }
+  }
+  if (!library) {
+    XELOGW(
+        "Kinect: ONNX Runtime (onnxruntime.dll) isn't installed, so a webcam "
+        "can't stand in for a Kinect (see tools/kinect/get_webcam_files.ps1)");
+    return nullptr;
+  }
+  FARPROC symbol = GetProcAddress(library, "OrtGetApiBase");
+#else
+  XELOGW("Kinect: ONNX Runtime isn't supported on this platform yet");
+  return nullptr;
+#endif
+  auto get_api_base =
+      reinterpret_cast<const OrtApiBase*(ORT_API_CALL*)()>(symbol);
   const OrtApiBase* base = get_api_base ? get_api_base() : nullptr;
   const OrtApi* api = base ? base->GetApi(kOrtApiVersion) : nullptr;
   if (!api) {
@@ -104,10 +134,6 @@ const OrtApi* LoadRuntime(const std::filesystem::path& library_path,
   }
   Failed(api->DisableTelemetryEvents(runtime.env), "turn telemetry off");
   return api;
-#else
-  XELOGW("Kinect: ONNX Runtime isn't supported on this platform yet");
-  return nullptr;
-#endif
 }
 
 }  // namespace

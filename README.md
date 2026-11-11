@@ -84,7 +84,7 @@ Related settings:
 
 Without a Kinect, a webcam (USB or a laptop's own) can take its place. Games track players from the Kinect's depth picture, which a webcam doesn't have, so the fork makes one: it finds the player's pose in the webcam's picture with MediaPipe's pose model, and draws a body in that pose as the depth a Kinect would see of them, standing in front of it in an empty room. The games' own trackers then find the drawn body as they would a real player. Color is the webcam's picture, lined up with the body.
 
-1. Run [`tools/kinect/get_webcam_files.sh`](tools/kinect/get_webcam_files.sh). It downloads MediaPipe's pose model and converts it for ONNX Runtime, and downloads ONNX Runtime too unless the system has it (Fedora: `sudo dnf install onnxruntime`). Everything goes in the `kinect` folder of Xenia's storage folder.
+1. Run [`tools/kinect/get_webcam_files.sh`](tools/kinect/get_webcam_files.sh). It downloads MediaPipe's pose model and converts it for ONNX Runtime, and downloads ONNX Runtime too unless the system has it (Fedora: `sudo dnf install onnxruntime`). Everything goes in the `kinect` folder of Xenia's storage folder. On Windows, run [`tools/kinect/get_webcam_files.ps1`](tools/kinect/get_webcam_files.ps1) in PowerShell instead; it puts `onnxruntime.dll` in the same folder.
 2. Copy the game configs as for a Kinect (step 3 above).
 3. Stand where the webcam sees you, or sit: when your legs are out of view, standing legs are drawn for you. Where you first settle is the play distance; stepping toward or away from the webcam from there, sideways and jumping all come through.
 4. Press **F9** in a game for the **Kinect view**: what the game sees and the players it tracks, the webcam's picture with the pose found in it, and advice on aiming the webcam or where to stand. It works with a Kinect too.
@@ -100,7 +100,7 @@ Related settings:
 
 ### Limits
 
-- **Linux only**, and only the original **Kinect for Xbox 360 (model 1414)**. The Xbox One Kinect isn't supported.
+- **Linux only, for the Kinect sensor itself** — only the original **Kinect for Xbox 360 (model 1414)**, read over USB; the Xbox One Kinect isn't supported. Without a sensor, a webcam can stand in for one on Linux and Windows. On Windows the webcam path is new and lightly tested.
 - **A webcam sees one player.** Depth toward and away from it is estimated from one picture, so it's rougher than a Kinect's. The tilt motor is simulated.
 - **Five games tested, all playable.** Other Kinect games may reach parts that aren't implemented yet.
 - **The microphones skip the sensor's own processing.** Games get the four microphones and their average, not the sensor's beamformed mix, which needs the console's Kinect audio calibration. Dance Central 2's voice commands work with this.

@@ -66,9 +66,9 @@ DEFINE_path(kinect_webcam_models_path, "",
             "the kinect folder in Xenia's storage folder.",
             "Kernel");
 DEFINE_path(kinect_onnxruntime_path, "",
-            "ONNX Runtime's library (libonnxruntime.so.1), which the webcam "
-            "Kinect needs. Empty looks beside the pose models, then in the "
-            "system's libraries.",
+            "ONNX Runtime's library (libonnxruntime.so.1, or onnxruntime.dll "
+            "on Windows), which the webcam Kinect needs. Empty looks beside "
+            "the pose models, then in the system's libraries.",
             "Kernel");
 DEFINE_path(kinect_webcam_test_recording, "",
             "For testing: a recording made with kinect_record_path whose "
