@@ -227,6 +227,15 @@ DEFINE_bool(guide_home, true,
             "UI");
 
 DEFINE_string(
+    guide_module, "",
+    "The experimental real Guide overlay: the dashboard's Guide module "
+    "(hud.xex) loaded over the running title, instead of going to the "
+    "dashboard. A guest path, \\Device\\Flash\\hud.xex on a console. Over a "
+    "title the Guide button toggles it; where it can't come up, the context "
+    "menu stands in.",
+    "UI");
+
+DEFINE_string(
     postprocess_antialiasing, "",
     "Post-processing anti-aliasing effect to apply to the image output of the "
     "game.\n"
@@ -2203,6 +2212,20 @@ std::filesystem::path EmulatorWindow::PickTitleFile() {
 }
 
 bool EmulatorWindow::OpenGuide() {
+  if (!cvars::guide_module.empty()) {
+    // The experimental Guide module first: a toggle over the running title,
+    // going down when it's up and loading when it isn't. Where it can't come
+    // up, the context menu stands in for the Guide.
+    if (emulator_->guide_module_open()) {
+      emulator_->CloseGuideModule();
+      return true;
+    }
+    if (emulator_->is_title_open() && emulator_->OpenGuideModule()) {
+      return true;
+    }
+    ToggleContextMenu(false);
+    return false;
+  }
   std::error_code ec;
   if (cvars::guide_home && !cvars::return_to_ui &&
       std::filesystem::exists(GetInstalledDashboardPath(), ec) &&

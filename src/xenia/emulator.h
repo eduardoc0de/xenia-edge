@@ -27,9 +27,11 @@
 #include "xenia/base/exception_handler.h"
 #include "xenia/kernel/kernel_state.h"
 #include "xenia/kernel/title_id_utils.h"
+#include "xenia/kernel/user_module.h"
 #include "xenia/kernel/util/game_info_database.h"
 #include "xenia/kernel/util/xlast.h"
 #include "xenia/kernel/xam/indie_game.h"
+#include "xenia/kernel/xthread.h"
 #include "xenia/memory.h"
 #include "xenia/patcher/patcher.h"
 #include "xenia/patcher/plugin_loader.h"
@@ -611,6 +613,17 @@ class Emulator {
     on_open_guide_ = std::move(callback);
   }
 
+  // The experimental real Guide overlay: loads the Guide HUD module, the
+  // dashboard's hud.xex, over whatever title is running and runs its entry
+  // point on a guest thread of its own, with the system UI notification
+  // broadcast like the real console does for the Guide. The module stays up
+  // until CloseGuideModule() takes it down. Returns false when the module
+  // isn't in the system files.
+  bool OpenGuideModule();
+  // Takes the Guide HUD module down again. Safe to call when it isn't up.
+  void CloseGuideModule();
+  bool guide_module_open() const { return guide_module_open_; }
+
   // Called when XamSwapDisc successfully swaps to a new disc.
   // Parameters: new_disc_number
   using DiscSwapCallback = std::function<void(uint8_t)>;
@@ -709,6 +722,13 @@ class Emulator {
   std::optional<uint32_t> title_id_;  // Currently running title ID
   uint8_t current_disc_number_ = 0;
   std::unique_ptr<kernel::util::GameInfoDatabase> game_info_database_;
+
+  // The experimental Guide HUD module over the title, its thread, and a lock
+  // for them, as the UI asks for the Guide and the reset tears them down.
+  std::mutex guide_module_mutex_;
+  bool guide_module_open_ = false;
+  kernel::object_ref<kernel::UserModule> guide_module_;
+  kernel::object_ref<kernel::XThread> guide_module_thread_;
 
   bool paused_;
   bool restoring_;

@@ -62,6 +62,7 @@
 #include "xenia/kernel/xam/xdbf/spa_info.h"
 #include "xenia/kernel/xbdm/xbdm_module.h"
 #include "xenia/kernel/xboxkrnl/xboxkrnl_module.h"
+#include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
 #include "xenia/kernel/xconfig.h"
 #include "xenia/kernel/xfile.h"
 #include "xenia/kernel/xthread.h"
@@ -1887,6 +1888,13 @@ void Emulator::ResetTitle() {
   // Drops relaunches requested before the reset.
   ++relaunch_requests_;
   std::lock_guard<std::recursive_mutex> launch_lock(launch_mutex_);
+  // The Guide HUD module dies with the title's threads.
+  {
+    std::lock_guard<std::mutex> guide_lock(guide_module_mutex_);
+    guide_module_open_ = false;
+    guide_module_.reset();
+    guide_module_thread_.reset();
+  }
   XELOGI("ResetTitle: stopping title and resetting kernel");
 
   relaunching_ = true;
@@ -2714,6 +2722,97 @@ bool Emulator::PlayBootAnimation() {
   return true;
 }
 
+// The experimental Guide HUD: the dashboard's Guide overlay module, loaded
+// over whatever title is running. The real console runs the Guide inside the
+// dashboard's process, so over a title this module is out of its home, and
+// what it makes of that is what the log is for.
+bool Emulator::OpenGuideModule() {
+  // A reset tears the module's kernel down: load under the same lock it
+  // holds for the teardown.
+  std::lock_guard<std::recursive_mutex> launch_lock(launch_mutex_);
+  std::lock_guard<std::mutex> lock(guide_module_mutex_);
+  if (guide_module_open_) {
+    return true;
+  }
+  if (guide_module_ || guide_module_thread_) {
+    // The last module is still being unloaded.
+    XELOGW("The Guide HUD module is still being unloaded");
+    return false;
+  }
+  if (relaunching_) {
+    return false;
+  }
+  auto module = kernel_state_->LoadUserModule("\\Device\\Flash\\hud.xex");
+  if (!module) {
+    XELOGE("The Guide HUD module isn't in the system files");
+    return false;
+  }
+  if (!module->entry_point()) {
+    XELOGE("The Guide HUD module has no entry point to run");
+    kernel_state_->UnloadUserModule(module, false);
+    return false;
+  }
+  // The imports bind, while the entry point is left to the thread below.
+  if (XFAILED(kernel_state_->FinishLoadingUserModule(module, false))) {
+    XELOGE("Failed to initialize the Guide HUD module");
+    kernel_state_->UnloadUserModule(module, false);
+    return false;
+  }
+  // Like the boot animation's thread: made suspended, and driven from here.
+  auto guide_thread = kernel::object_ref<kernel::XThread>(new kernel::XThread(
+      kernel_state_.get(), module->stack_size(), 0, module->entry_point(),
+      module->hmodule_ptr(),
+      kernel::xboxkrnl::CreateThreadFlags::ThreadInitiallySuspended |
+          kernel::xboxkrnl::CreateThreadFlags::PriorityClass1 |
+          kernel::xboxkrnl::CreateThreadFlags::ReturnKThreadPtr |
+          kernel::xboxkrnl::CreateThreadFlags::AffinityCpu3,
+      true));
+  guide_thread->set_name("Guide HUD");
+  if (XFAILED(guide_thread->Create())) {
+    XELOGE("Could not create the Guide HUD thread");
+    kernel_state_->UnloadUserModule(module, false);
+    return false;
+  }
+  guide_thread->SetPriority(17);
+  guide_module_ = module;
+  guide_module_thread_ = guide_thread;
+  guide_module_open_ = true;
+  // The system UI is up, as the console says before the Guide runs.
+  kernel_state_->BroadcastNotification(kXNotificationSystemUI, true);
+  guide_thread->Resume();
+  XELOGI("The Guide HUD module is up over the running title");
+  return true;
+}
+
+void Emulator::CloseGuideModule() {
+  // The reset tears the module's kernel down: close under the same lock it
+  // holds for the teardown.
+  std::lock_guard<std::recursive_mutex> launch_lock(launch_mutex_);
+  kernel::object_ref<kernel::UserModule> module;
+  kernel::object_ref<kernel::XThread> thread;
+  {
+    std::lock_guard<std::mutex> lock(guide_module_mutex_);
+    if (!guide_module_open_) {
+      return;
+    }
+    guide_module_open_ = false;
+    module = std::move(guide_module_);
+    thread = std::move(guide_module_thread_);
+  }
+  // The system UI is down before the module goes away.
+  kernel_state_->BroadcastNotification(kXNotificationSystemUI, false);
+  if (thread) {
+    thread->Terminate(0);
+    // A moment for the thread to unwind before the module it runs goes away
+    // with it.
+    uint64_t timeout = static_cast<uint64_t>(-10000000ll);
+    thread->Wait(3, 1, 0, &timeout);
+  }
+  // Without the module's detach: it would run the Guide's guest code on this
+  // host thread, which no thread of the title asked for.
+  kernel_state_->UnloadUserModule(module, false);
+}
+
 void Emulator::SetupAgain() {
   const X_STATUS result =
       Setup(nullptr, nullptr, require_cpu_backend_, nullptr, nullptr, nullptr);
@@ -2725,6 +2824,12 @@ void Emulator::SetupAgain() {
 }
 
 void Emulator::ResetTitleState() {
+  // The Guide HUD module of the title going away goes away with it. The
+  // kernel tears it down with the rest of the title either way.
+  std::lock_guard<std::mutex> guide_lock(guide_module_mutex_);
+  guide_module_open_ = false;
+  guide_module_.reset();
+  guide_module_thread_.reset();
   title_id_ = std::nullopt;
   title_name_ = "";
   title_version_ = "";
