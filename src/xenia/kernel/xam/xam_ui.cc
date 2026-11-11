@@ -1409,6 +1409,23 @@ dword_result_t XamShowNuiGamerCardUIForXUID_entry(dword_t tracking_id,
 }
 DECLARE_XAM_EXPORT1(XamShowNuiGamerCardUIForXUID, kUI, kStub);
 
+dword_result_t XamShowGuideUI_entry(dword_t user_index, dword_t unknown,
+                                    dword_t overlapped) {
+  // The Guide is the host's to bring up: with the dashboard installed it
+  // goes there, as the Guide button does. The dashboard replaces this
+  // title, so the call returns at once rather than waiting on it.
+  auto* emulator = kernel_state()->emulator();
+  if (auto open_guide = emulator->on_open_guide()) {
+    emulator->display_window()->app_context().CallInUIThread(
+        [open_guide]() { open_guide(); });
+    return X_ERROR_SUCCESS;
+  }
+  XELOGD("XamShowGuideUI({:08X}, {:08X}, {:08X}) unimplemented",
+         uint32_t(user_index), uint32_t(unknown), uint32_t(overlapped));
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamShowGuideUI, kUI, kSketchy);
+
 dword_result_t XamShowGamerCardUI_entry(dword_t user_index) {
   auto user = kernel_state()->xam_state()->GetUserProfile(user_index);
   if (!user) {

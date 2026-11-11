@@ -140,6 +140,11 @@ class EmulatorWindow {
   // Asks for a title or disc image to run, or returns an empty path.
   std::filesystem::path PickTitleFile();
   void FileAddGames();
+  // Opens the guide: with the dashboard installed and guide_home on, the
+  // dashboard itself, which is the Xbox home button's job (a running title
+  // stops for it after a confirmation). Otherwise the context menu stands
+  // in. Returns true when the dashboard or menu was brought up.
+  bool OpenGuide();
   // Starts the installed dashboard after the boot animation.
   void StartDashboard();
   std::filesystem::path GetInstalledDashboardPath() const;

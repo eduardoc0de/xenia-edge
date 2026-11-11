@@ -602,6 +602,15 @@ class Emulator {
     on_power_off_ = std::move(callback);
   }
 
+  // Called when the Guide is asked for, with the host deciding what that
+  // means: the installed dashboard, or whatever stands in for it. Returns
+  // true when the host brought a guide up itself.
+  using OpenGuideCallback = std::function<bool()>;
+  OpenGuideCallback on_open_guide() const { return on_open_guide_; }
+  void set_on_open_guide(OpenGuideCallback callback) {
+    on_open_guide_ = std::move(callback);
+  }
+
   // Called when XamSwapDisc successfully swaps to a new disc.
   // Parameters: new_disc_number
   using DiscSwapCallback = std::function<void(uint8_t)>;
@@ -728,6 +737,7 @@ class Emulator {
   LaunchNewTitleCallback on_launch_new_title_;
   ExitToDashboardCallback on_exit_to_dashboard_;
   ExitToDashboardCallback on_power_off_;
+  OpenGuideCallback on_open_guide_;
   DiscSwapCallback on_disc_swap_;
 };
 

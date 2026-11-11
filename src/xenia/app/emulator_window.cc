@@ -219,6 +219,13 @@ DEFINE_bool(fullscreen, false, "Whether to launch the emulator in fullscreen.",
 DEFINE_bool(guide_button, true,
             "Toggle the context menu with the guide button.", "UI");
 
+DEFINE_bool(guide_home, true,
+            "The Guide button goes to the installed dashboard like the Xbox's "
+            "home button: a running title stops for it after a confirmation, "
+            "and with the game list showing the dashboard starts. Without a "
+            "dashboard, or with this off, the context menu stands in.",
+            "UI");
+
 DEFINE_string(
     postprocess_antialiasing, "",
     "Post-processing anti-aliasing effect to apply to the image output of the "
@@ -1097,6 +1104,14 @@ void EmulatorWindow::OnEmulatorInitialized() {
   emulator_->set_on_exit_to_dashboard(
       [this]() { return StopTitleAndReturnHome(); });
   emulator_->set_on_power_off([this]() { return StopTitleAndReturnToList(); });
+  // The Guide may be asked for off the UI thread (XamShowGuideUI from a
+  // guest thread, the Guide button from the input poll), and it touches the
+  // window, so it waits for the UI thread here. On the UI thread it runs
+  // inline, keeping the button instant.
+  emulator_->set_on_open_guide([this]() {
+    return app_context_.CallInUIThreadSynchronous(
+        [this]() { return OpenGuide(); });
+  });
 
   // Register callback for disc swap to update title bar
   emulator_->set_on_disc_swap([this](uint8_t) {
@@ -2185,6 +2200,39 @@ std::filesystem::path EmulatorWindow::PickTitleFile() {
     return {};
   }
   return file_picker->selected_files().front();
+}
+
+bool EmulatorWindow::OpenGuide() {
+  std::error_code ec;
+  if (cvars::guide_home && !cvars::return_to_ui &&
+      std::filesystem::exists(GetInstalledDashboardPath(), ec) &&
+      !emulator_->is_relaunching()) {
+    if (emulator_->is_title_open()) {
+      if (emulator_->title_id() == kernel::kDashboardID) {
+        // The dashboard is up: its guide is itself, so Xenia's menu stands
+        // in for the one it doesn't open here.
+        ToggleContextMenu(false);
+      } else {
+        // A running title stops for the dashboard, asked first as it can't
+        // be suspended like on the real console.
+        const std::filesystem::path dashboard = GetInstalledDashboardPath();
+        new ui::ImGuiConfirmDialog(
+            imgui_drawer(), "Guide",
+            "Exit to the dashboard? Unsaved progress will be lost.",
+            [this, dashboard](bool confirmed) {
+              if (confirmed) {
+                RunTitle(dashboard);
+              }
+            },
+            emulator_->input_system());
+      }
+    } else {
+      StartDashboard();
+    }
+    return true;
+  }
+  ToggleContextMenu(false);
+  return false;
 }
 
 void EmulatorWindow::StartDashboard() {
@@ -3899,10 +3947,10 @@ void EmulatorWindow::PollGamepads() {
         if (controller_states[user_index].first) {
           uint16_t buttons =
               controller_states[user_index].second.gamepad.buttons;
-          // Guide alone toggles the context menu, once per press.
+          // Guide alone opens the guide, once per press.
           if (cvars::guide_button && buttons == X_INPUT_GAMEPAD_GUIDE &&
               previous_buttons[user_index] != X_INPUT_GAMEPAD_GUIDE) {
-            app_context_.CallInUIThread([this]() { ToggleContextMenu(false); });
+            app_context_.CallInUIThread([this]() { OpenGuide(); });
           }
 
           // Game list navigation: only when no title is running. Edge-detect
