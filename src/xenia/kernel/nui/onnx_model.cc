@@ -112,7 +112,8 @@ const OrtApi* LoadRuntime(const std::filesystem::path& library_path,
 #else
   XELOGW("Kinect: ONNX Runtime isn't supported on this platform yet");
   return nullptr;
-#endif
+#endif  // XE_PLATFORM_LINUX || XE_PLATFORM_WIN32
+#if XE_PLATFORM_LINUX || XE_PLATFORM_WIN32
   auto get_api_base =
       reinterpret_cast<const OrtApiBase*(ORT_API_CALL*)()>(symbol);
   const OrtApiBase* base = get_api_base ? get_api_base() : nullptr;
@@ -134,6 +135,7 @@ const OrtApi* LoadRuntime(const std::filesystem::path& library_path,
   }
   Failed(api->DisableTelemetryEvents(runtime.env), "turn telemetry off");
   return api;
+#endif  // XE_PLATFORM_LINUX || XE_PLATFORM_WIN32
 }
 
 }  // namespace
@@ -175,10 +177,11 @@ std::unique_ptr<OnnxModel> OnnxModel::Load(
     return nullptr;
   }
   auto impl = std::make_unique<Impl>();
-  const std::string path = xe::path_to_utf8(model_path);
-  const bool failed = Failed(
-      api->CreateSession(runtime.env, path.c_str(), options, &impl->session),
-      "load a model");
+  // ORTCHAR_T is wchar_t on Windows and char elsewhere: exactly what
+  // std::filesystem::path keeps natively on either platform.
+  const bool failed = Failed(api->CreateSession(runtime.env, model_path.c_str(),
+                                                options, &impl->session),
+                             "load a model");
   api->ReleaseSessionOptions(options);
   if (failed) {
     impl->session = nullptr;
