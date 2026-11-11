@@ -501,7 +501,7 @@ DECLARE_XAM_EXPORT1(XamNuiHudGetEngagedTrackingID, kNone, kImplemented);
 
 dword_result_t XamNuiHudIsEnabled_entry() {
   auto nui_ = kernel_state()->nui();
-  bool result = XamNuiIsDeviceReady_entry();
+  bool result = nui_->NuiInitialized();
   if (nui_->GetNUIDataPtr() && nui_->GetUnknown2() && result) {
     return true;
   }
